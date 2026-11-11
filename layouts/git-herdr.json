@@ -1,0 +1,41 @@
+{
+  "id": "root",
+  "type": "column",
+  "preview": "layouts/git-herdr.svg",
+  "background": "canvas",
+  "children": [
+    {
+      "id": "gh-body",
+      "type": "row",
+      "gap": 8,
+      "padding": 8,
+      "children": [
+        {
+          "id": "gh-panel",
+          "type": "block",
+          "content": { "mod": "git-herdr" },
+          "background": "background",
+          "border": { "width": 1, "color": "border" },
+          "radius": 12
+        },
+        {
+          "id": "gh-agent",
+          "type": "block",
+          "content": { "agent": "focused" },
+          "size": { "px": 560 },
+          "min": 280,
+          "max": 1600,
+          "background": "background",
+          "border": { "width": 1, "color": "border" },
+          "radius": 12
+        }
+      ]
+    },
+    {
+      "id": "gh-status",
+      "type": "block",
+      "content": { "mod": "workspace-status" },
+      "size": { "px": 28 }
+    }
+  ]
+}

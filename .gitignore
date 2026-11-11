@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+*.log
+gpui-kit.d.ts
+herdr.d.ts
+jsconfig.json

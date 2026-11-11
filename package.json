@@ -1,0 +1,8 @@
+{
+  "name": "git-herdr",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --import ./tests/stubs/register.mjs --test tests/*.test.mjs"
+  }
+}

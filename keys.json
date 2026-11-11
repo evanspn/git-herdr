@@ -1,0 +1,5 @@
+{
+  "global": {
+    "ctrl-shift-g": "layout.switch:git-herdr"
+  }
+}
