@@ -2,6 +2,8 @@
 
 A mod for the [Herdr](https://herdr.dev) desktop app: commits and local code review in one panel, beside the agents doing the work. It does what you would open GitHub Desktop for (stage files, hunks or lines, commit, branches, stashes, history, fetch, pull, push), and adds a review loop with whichever coding agent you run: comment on lines, have the agent review against checklists, and see its change maps as Mermaid diagrams.
 
+![Git Herdr](preview.png)
+
 It works on the repository of the focused terminal, on this computer.
 
 ## Install
@@ -16,6 +18,8 @@ herdr-app check ~/.config/herdr-app/mods/git-herdr
 
 Add `"ctrl-shift-g": "layout.switch:git-herdr"` to the `global` section of `~/.config/herdr-app/keys.json`.
 
+Commands for keys or scripts: `git-herdr.refresh`, `git-herdr.tab-<changes|history|branches|files|review|diagrams>`, and the Review buttons `git-herdr.review-run`, `git-herdr.review-send`, `git-herdr.review-draw` (for example `"layout:git-herdr": { "ctrl-shift-r": "git-herdr.review-run" }`, or `herdr-app do git-herdr.review-run`).
+
 Three ways to open it:
 
 - **As a layout:** Ctrl+Shift+G. The panel on the left, the focused agent's terminal on the right. Ctrl+Shift+L goes back to your own layout.
@@ -26,7 +30,7 @@ Three ways to open it:
 
 | Tab | What it does |
 | --- | --- |
-| Changes | Staged and unstaged files. `+` stages a file, `−` unstages it, `×` discards it (click twice). The diff has Stage hunk, Unstage hunk and Discard hunk on each hunk; click line numbers to pick single lines, then stage, unstage or discard just those. Summary, description, Amend, Commit. Only what is staged is committed. |
+| Changes | Staged and unstaged files. `+` stages a file, `−` unstages it, `×` discards it (click twice). In the diff, click changed lines to pick them, or a hunk's header to pick the whole hunk, then stage, unstage or discard just those from the title bar. Summary, description, Amend, Commit. Only what is staged is committed. |
 | History | The last 200 commits. Click one for its files and diff. |
 | Branches | Create, switch and delete local branches; check out a remote branch; stash, pop, apply and drop. |
 | Files | Every file in the repository, filtered as you type, to read and comment on. |
@@ -37,7 +41,7 @@ Fetch, Pull and Push are in the header on every tab. Push publishes the branch w
 
 ## Reviewing with an agent
 
-1. **Comment.** In Changes, History or Files, click `+` beside a line and write. The comment appears under the line and in Review.
+1. **Comment.** In History or Files, click a line and write. In Changes, click a line, then *Comment on line N* in the title bar. The comment appears under the line and in Review.
 2. **Send.** In Review, pick an agent: one running in this space, or an installed one to start in a new tab. *Send to agent* hands over every comment, reply and accepted finding it has not seen. The agent makes the change or answers, and its reply shows in the thread.
 3. **Run review.** The agent works through the chosen checklists against the chosen changes and writes findings. Each appears on its line. Accept one (the agent is asked to fix it on the next send), dismiss it, or reply.
 4. **Draw change map.** The agent writes Mermaid diagrams of the change; the Diagrams tab draws them.
@@ -87,7 +91,7 @@ Herdr mods are trusted code. This one:
 - Renames show as a delete and an add. Conflicted files show, but there is no merge tool.
 - A file that is new or deleted can only be staged or discarded whole.
 - No syntax highlighting in the diff and file views.
-- This build has not been run through `herdr-app check` or seen in the app: Herdr could not be installed where it was written. The tests below cover the logic, not the drawing.
+- Passes `herdr-app check` and has been seen in Herdr 0.1.15: every tab draws. The tests below cover the logic; clicks inside the app are not automated.
 
 ## Developing
 

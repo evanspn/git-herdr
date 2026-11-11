@@ -5,10 +5,11 @@ import * as fs from "node:fs/promises";
 import { join } from "node:path";
 import GitHerdr, { TABS, AGENT_BLOCK } from "../mods/git-herdr/main.js";
 import { find, texts } from "./stubs/gpui-kit.mjs";
-import { world } from "./stubs/herdr.mjs";
+import { world, sendCommand, forgetCopies } from "./stubs/herdr.mjs";
 import { makeRepo, git, write, read, context, LINES } from "./helpers.mjs";
 
 async function start() {
+  forgetCopies();
   const root = await makeRepo(), cx = context(), view = new GitHerdr();
   view.init({}, cx);
   await cx.settle();
@@ -19,9 +20,18 @@ async function start() {
     await cx.settle();
   };
   const shows = (text) => texts(view.render(cx)).some((s) => s.includes(text));
-  return { root, cx, view, click, shows };
+  // A click on a row of a virtual list, delivered as Herdr does: the list's on_item_click with the row's key.
+  const clickRow = async (list, match) => {
+    const node = find(view.render(cx), list);
+    assert.ok(node?.itemClick, `${list} takes no row clicks`);
+    const rows = view.withThreads(view.tab === "files" ? view.file.rows : view.rows, view.open?.path ?? view.file?.path);
+    const index = rows.findIndex(match);
+    assert.ok(index >= 0, `no such row in ${list}`);
+    node.itemClick(node.keys[index], cx);
+    await cx.settle();
+  };
+  return { root, cx, view, click, clickRow, shows };
 }
-const rowId = (view, id, match) => `${id}${view.withThreads(view.tab === "files" ? view.file.rows : view.rows, view.open?.path ?? view.file?.path).findIndex(match)}`;
 
 test("every tab draws, for a repository and for a folder that is not one", async () => {
   const { view, cx, click, shows } = await start();
@@ -32,7 +42,7 @@ test("every tab draws, for a repository and for a folder that is not one", async
 });
 
 test("stage a file, pick lines, and commit only what is staged", async () => {
-  const { root, view, cx, click, shows } = await start();
+  const { root, view, cx, click, clickRow, shows } = await start();
   await write(root, "a.txt", ["one", "TWO", ...LINES.slice(2), "eleven"]);
   await write(root, "new.txt", ["hello"]);
   await click("tab-changes");
@@ -41,8 +51,15 @@ test("stage a file, pick lines, and commit only what is staged", async () => {
   assert.ok(shows("STAGED · 1"));
   await click("file-u-a.txt");
   // Pick only the added last line, then stage the pick.
-  await click(rowId(view, "gh-diff-n", (r) => r.kind === "+" && r.text === "eleven"));
+  await clickRow("gh-diff", (r) => r.kind === "+" && r.text === "eleven");
   assert.equal(view.picked.size, 1);
+  // A hunk header picks every changed line of its hunk, and a second click unpicks them.
+  await clickRow("gh-diff", (r) => r.type === "hunk" && r.hunk === 0);
+  assert.ok(view.hunkPicked(0));
+  await clickRow("gh-diff", (r) => r.type === "hunk" && r.hunk === 0);
+  assert.equal(view.hunkPicked(0), false);
+  // The other hunk's pick is untouched.
+  assert.deepEqual([...view.picked], [...view.hunkLines(1)]);
   await click("pick-apply");
   assert.equal((await git(root, "show", ":a.txt")).trim().split("\n").at(-1), "eleven");
   assert.match(await git(root, "show", ":a.txt"), /^one\ntwo\n/);
@@ -78,12 +95,13 @@ test("branches and stashes", async () => {
 });
 
 test("a review: comment inline, hand over, findings and replies come back as threads", async () => {
-  const { root, view, cx, click, shows } = await start();
+  const { root, view, cx, click, clickRow, shows } = await start();
   world.running = [{ address: "t7", space: "s1", tab_name: "work", program: { name: "Claude Code" } }];
   world.shared.layout = "git-herdr";
   await write(root, "a.txt", ["one", "TWO", ...LINES.slice(2)]);
   await click("tab-changes");
-  await click(rowId(view, "gh-diff-c", (r) => r.kind === "+" && r.text === "TWO"));
+  await clickRow("gh-diff", (r) => r.kind === "+" && r.text === "TWO");
+  await click("line-comment");
   assert.deepEqual([view.composer.file, view.composer.side, view.composer.line], ["a.txt", "new", 2]);
   view.commentInput.type("Why upper case?", cx); view.commentInput.submit(cx); await cx.settle();
   const session = join(root, ".herdr/review-session");
@@ -142,7 +160,7 @@ test("with no agent running, a task starts an installed one in a new tab", async
 });
 
 test("diagrams are drawn by the renderer, and its errors are shown", async () => {
-  const { root, view, cx, click, shows } = await start();
+  const { root, view, cx, click, clickRow, shows } = await start();
   const dir = join(root, ".herdr/review-session/diagrams");
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(join(root, ".herdr/review-session/.gitignore"), "*\n");
@@ -179,4 +197,16 @@ test("the layout places the mod and the agent block the mod drives", async () =>
   assert.deepEqual(blocks.find((b) => b.id === AGENT_BLOCK)?.content, { agent: "focused" });
   const keys = JSON.parse(await fs.readFile(new URL("../keys.json", import.meta.url), "utf8"));
   assert.equal(keys.global["ctrl-shift-g"], "layout.switch:git-herdr");
+});
+
+test("the Review buttons also run from commands (keys.json or a script)", async () => {
+  const { root, view, cx } = await start();
+  world.running = [{ address: "t7", space: "s1", tab_name: "work", program: { name: "Claude Code" } }];
+  await write(root, "a.txt", ["one", "TWO", ...LINES.slice(2)]);
+  view.render(cx); await cx.settle();
+  sendCommand("review-run"); await cx.settle();
+  assert.match(await fs.readFile(/Read (\S+) and/.exec(world.sent.at(-1)[2])[1], "utf8"), /checklists\/correctness\.md/);
+  sendCommand("review-draw"); await cx.settle();
+  assert.match(await fs.readFile(/Read (\S+) and/.exec(world.sent.at(-1)[2])[1], "utf8"), /diagrams/);
+  assert.equal(world.sent.length, 2);
 });

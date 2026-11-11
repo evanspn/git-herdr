@@ -23,35 +23,35 @@ function pathLabel(path, t) {
 // ---- the code view: a diff or a file, with inline threads ----
 // `mode`: "changes" (hunks and lines can be staged), "read" (a commit) or "file".
 
-function codeRow(view, t, id, row, i, o) {
+// Rows are drawn inside the virtual list's layout pass, where handlers throw: a row carries no
+// on_click, id or hover. The list's one on_item_click hands the clicked row to `rowClicked`.
+function codeRow(view, t, row, o) {
   if (row.type === "more") {
-    return h_flex().id(`${id}-more`).h(ROW).px(12).flex_none().bg(t.raised).text_color(t.accent).cursor_pointer()
-      .on_click((_e, cx) => { view.file.from = 0; cx.notify(); }).child(`↑ Show from line 1 (${row.count} lines above)`);
+    return h_flex().h(ROW).px(12).flex_none().bg(t.raised).text_color(t.accent).child(`↑ Show from line 1 (${row.count} lines above)`);
   }
   if (row.type === "thread") {
     const th = row.thread, color = th.kind === "finding" ? severityColor(th.severity, t) : t.accent;
-    return h_flex().id(`${id}-t${i}`).h(ROW).flex_none().pl(94).pr(10).gap(8).items_center().cursor_pointer()
-      .bg(view.thread === th.id ? t.selected : t.raised).hover((s) => s.bg(t.hover)).on_click((_e, cx) => view.showThread(th.id, cx))
+    return h_flex().h(ROW).flex_none().pl(94).pr(10).gap(8).items_center()
+      .bg(view.thread === th.id ? t.selected : t.raised)
       .child(div().flex_none().font_semibold().text_color(color).child(th.kind === "finding" ? `▸ agent · ${th.severity}` : "▸ you"))
       .child(div().flex_1().min_w(0).truncate().child(summary(th)))
       .when(th.messages.length > 0, (e) => e.child(div().flex_none().text_color(t.dim).child(`${th.messages.length} repl${th.messages.length === 1 ? "y" : "ies"}`)));
   }
   if (row.type === "hunk") {
-    const staged = view.open?.staged, can = o.mode === "changes" && !view.diff?.whole && !view.busy;
+    const can = o.mode === "changes" && !view.diff?.whole;
     return h_flex().h(ROW).flex_none().px(12).gap(8).items_center().bg(t.raised).text_color(t.dim)
       .child(div().flex_1().min_w(0).truncate().child(row.text))
-      .when(can, (e) => e.child(link(`${id}-h${row.hunk}`, staged ? "Unstage hunk" : "Stage hunk", (cx) => view.applyPicks(row.hunk, false, cx), t, t.accent)))
-      .when(can && !staged, (e) => e.child(link(`${id}-d${row.hunk}`, view.confirming === `discard-hunk-${row.hunk}` ? "Discard: sure?" : "Discard hunk", (cx) => view.discardPicks(row.hunk, cx), t, t.ansi1)));
+      .when(can, (e) => e.child(div().flex_none().text_color(t.accent).child(view.hunkPicked(row.hunk) ? "Hunk picked · click to unpick" : "Click to pick hunk")));
   }
   const changed = row.kind !== " ", pickable = o.mode === "changes" && changed && !view.diff?.whole;
   const picked = pickable && view.picked.has(`${row.hunk}:${row.index}`);
+  const current = view.isCursor(o.file, row);
   const number = (value) => div().w(38).flex_none().text_right().text_color(picked ? t.accent : t.dim).child(value === undefined ? "" : String(value));
-  const numbers = h_flex().flex_none().gap(4).child(number(o.mode === "file" ? undefined : row.old)).child(number(row.new));
   return h_flex().h(ROW).flex_none().gap(6).items_center()
-    .when(row.kind === "+", (e) => e.bg(t.ansi2 + "18")).when(row.kind === "-", (e) => e.bg(t.ansi1 + "18")).when(picked, (e) => e.bg(t.selected))
-    .child(div().id(`${id}-c${i}`).w(18).flex_none().text_center().cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.accent).bg(t.hover))
-      .on_click((_e, cx) => view.compose(o.file, row, o.ref, cx)).child("+"))
-    .child(pickable ? numbers.id(`${id}-n${i}`).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => view.togglePick(row, cx)) : numbers)
+    .when(row.kind === "+", (e) => e.bg(t.ansi2 + "18")).when(row.kind === "-", (e) => e.bg(t.ansi1 + "18"))
+    .when(picked || current, (e) => e.bg(t.selected))
+    .child(div().w(18).flex_none().text_center().text_color(current ? t.accent : t.dim).child(current ? "▸" : ""))
+    .child(h_flex().flex_none().gap(4).child(number(o.mode === "file" ? undefined : row.old)).child(number(row.new)))
     .child(div().w(8).flex_none().text_color(t.dim).child(changed ? row.kind : ""))
     .child(div().flex_1().min_w(0).truncate().child(row.text));
 }
@@ -64,7 +64,9 @@ function codeView(view, t, id, rows, o) {
     .child(div().id(`${id}-x`).size_full().overflow_x_scrollbar()
       .child(div().w_full().min_w(Math.max(300, Math.min(longest, 4000) * 7 + 130)).h_full()
         .child(v_virtual_list(id, all.length, ROW, (i) => String(i),
-          (range) => all.slice(range.start, range.end).map((r, k) => codeRow(view, t, id, r, range.start + k, o))).size_full())))
+          (range) => all.slice(range.start, range.end).map((r) => codeRow(view, t, r, o)))
+          .size_full().cursor_pointer()
+          .on_item_click((key, cx) => { const row = all[Number(key)]; if (row) view.rowClicked(row, o, cx); }))))
     .child(Scrollbar.vertical(id).viewport_from_layout().absolute().inset_0());
 }
 
@@ -72,11 +74,12 @@ const empty = (text, t) => div().flex_1().p(16).text_color(t.dim).child(text);
 const paneTitle = (t) => h_flex().h(34).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border);
 
 // Two regions: side by side when wide, stacked when narrow.
-function split(view, t, side, main, width = 320) {
+function split(view, t, side, main, width = 320, stacked = 260) {
   const wide = view.width === 0 || view.width >= 820;
   return (wide ? h_flex() : v_flex()).flex_1().min_h(0)
-    .child(wide ? side.w(width).flex_none().h_full().border_r(1).border_color(t.border) : side.w_full().h(260).flex_none().border_b(1).border_color(t.border))
-    .child(main.flex_1().min_w(0).min_h(0));
+    .child(wide ? side.w(width).flex_none().h_full().border_r(1).border_color(t.border) : side.w_full().h(stacked).flex_none().border_b(1).border_color(t.border))
+    // h_flex centers its children vertically; without h_full the main region shrinks to its content and floats mid-pane.
+    .child(wide ? main.flex_1().min_w(0).min_h(0).h_full() : main.flex_1().min_w(0).min_h(0));
 }
 
 // ---- changes ----
@@ -120,9 +123,12 @@ function changes(view, t) {
         .child(button("pick-apply", `${isStaged ? "Unstage" : "Stage"} ${n} line${n === 1 ? "" : "s"}`, (cx) => view.applyPicks(null, false, cx), t, "primary", !view.busy))
         .when(!isStaged, (e) => e.child(button("pick-discard", view.confirming === "discard-hunk-null" ? "Discard: sure?" : "Discard lines", (cx) => view.discardPicks(null, cx), t, "danger")))
         .child(link("pick-clear", "Clear", (cx) => { view.picked = new Set(); cx.notify(); }, t)))
-      .when(n === 0 && Boolean(view.diff) && !view.diff.whole, (e) => e.child(note("Click line numbers to pick lines", t))))
+      .when(n === 0 && Boolean(view.diff) && !view.diff.whole, (e) => e.child(note("Click lines or a hunk to pick them", t)))
+      .when(Boolean(view.cursor) && view.cursor.file === view.open?.path, (e) => e.child(button("line-comment", `Comment on line ${view.cursor.line}`, (cx) => view.composeAtCursor(cx), t))))
     .child(view.diff ? codeView(view, t, "gh-diff", view.rows, { file: view.open.path, mode: "changes" }) : empty(view.message ?? (view.open ? "Loading…" : "Nothing to show"), t));
-  return split(view, t, side, main);
+  // Stacked, the commit box (about 150px) shares this height with the file list: fit the files, within bounds.
+  const stacked = Math.min(440, Math.max(260, 150 + 70 + 27 * repo.files.length));
+  return split(view, t, side, main, 320, stacked);
 }
 
 // ---- history ----
@@ -251,7 +257,7 @@ function diagrams(view, t, cx) {
       .when(!missing, (e) => e.child(div().font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.muted).child(d.error)))
       .child(h_flex().gap(6).child(div().flex_1().child(input(view.mermaidInput, t))).child(button("mermaid-set", "Use this renderer", (cx) => view.setRenderer(cx), t)))))
     .when(Boolean(d.error) || view.source, (e) => e.child(source()))
-    .when(Boolean(d.image) && !view.source, (e) => e.child(div().flex_1().min_h(0).p(12).child(image(d.image).size_full())));
+    .when(Boolean(d.image) && !view.source, (e) => e.child(h_flex().flex_1().min_h(0).p(12).overflow_hidden().justify_center().child(image(d.image).max_w_full().max_h_full())));
 }
 
 // ---- the dock: a comment being written, or the selected thread ----

@@ -44,7 +44,7 @@ export default class GitHerdr extends View {
     this.tab = TABS.includes(remembered("tab")) ? remembered("tab") : "changes";
     this.repo = null; this.cwd = undefined; this.error = null; this.note = null; this.busy = null; this.width = 0;
     this.open = null;     // { path, staged }: the file whose diff shows
-    this.diff = null; this.rows = []; this.message = null; this.picked = new Set(); // "hunk:index" of picked lines
+    this.diff = null; this.rows = []; this.message = null; this.picked = new Set(); this.cursor = null; // "hunk:index" of picked lines; the last clicked line
     this.amend = false; this.confirming = null;
     this.log = []; this.commit = null;                 // { hash, files: [{ path, diff }], at }
     this.branches = { local: [], remote: [] }; this.stashes = [];
@@ -77,6 +77,10 @@ export default class GitHerdr extends View {
         const command = await nextCommand();
         if (command === "refresh") this.refresh(cx);
         else if (command.startsWith("tab-")) this.setTab(command.slice(4), cx);
+        // The Review tab's buttons, for keys.json ("mod:git-herdr") or a script.
+        else if (command === "review-run" && this.repo) this.runReview(cx);
+        else if (command === "review-send" && this.repo) this.sendComments(cx);
+        else if (command === "review-draw" && this.repo) this.drawChanges(cx);
         cx.notify();
       }
     });
@@ -150,7 +154,7 @@ export default class GitHerdr extends View {
   // Line picks survive a reload of the same file only while its diff is unchanged.
   setDiff(diff, text, key = null) {
     const print = diff ? JSON.stringify(diff.hunks) : null;
-    if (key !== this.diffKey || print !== this.diffPrint) this.picked = new Set();
+    if (key !== this.diffKey || print !== this.diffPrint) { this.picked = new Set(); this.cursor = null; }
     this.diffKey = key; this.diffPrint = print; this.diff = diff; this.message = text;
     this.rows = diff ? diffRows(diff).slice(0, 4000) : [];
   }
@@ -221,9 +225,32 @@ export default class GitHerdr extends View {
   // ---- changes ----
 
   pick(path, staged, cx) {
-    this.open = { path, staged }; this.confirming = null;
+    this.open = { path, staged }; this.confirming = null; this.cursor = null;
     const root = this.repo.root;
     cx.spawn(async (cx) => { await this.loadDiff(root); cx.notify(); });
+    cx.notify();
+  }
+  // A click on a row of a code view (the list's on_item_click; rows themselves carry no handlers).
+  rowClicked(row, o, cx) {
+    if (row.type === "more") { if (this.file) this.file.from = 0; cx.notify(); return; }
+    if (row.type === "thread") { this.showThread(row.thread.id, cx); return; }
+    if (row.type === "hunk") { if (o.mode === "changes" && !this.diff?.whole) this.toggleHunk(row.hunk, cx); return; }
+    if (o.mode !== "changes") { this.compose(o.file, row, o.ref, cx); return; }
+    this.cursor = { file: o.file, row, ...anchor(row) };
+    if (row.kind !== " " && !this.diff?.whole) this.togglePick(row, cx); else cx.notify();
+  }
+  isCursor(file, row) {
+    const c = this.cursor ?? (this.composer ? { file: this.composer.file, side: this.composer.side, line: this.composer.line } : null);
+    if (!c || c.file !== file) return false;
+    const a = anchor(row);
+    return a.side === c.side && a.line === c.line;
+  }
+  composeAtCursor(cx) { if (this.cursor) this.compose(this.cursor.file, this.cursor.row, null, cx); }
+  hunkLines(hunk) { return this.rows.filter((r) => r.type === "line" && r.hunk === hunk && r.kind !== " ").map((r) => `${hunk}:${r.index}`); }
+  hunkPicked(hunk) { const keys = this.hunkLines(hunk); return keys.length > 0 && keys.every((k) => this.picked.has(k)); }
+  toggleHunk(hunk, cx) {
+    const keys = this.hunkLines(hunk), all = this.hunkPicked(hunk);
+    for (const k of keys) { if (all) this.picked.delete(k); else this.picked.add(k); }
     cx.notify();
   }
   togglePick(row, cx) {
@@ -310,7 +337,7 @@ export default class GitHerdr extends View {
     this.mutate(cx, "Saving", async (root) => { await saveStore(root, change((await loadSession(root)).store)); });
   }
   compose(file, row, ref, cx) {
-    this.composer = { file, ...anchor(row), text: row.text, ref: ref ?? null }; this.thread = null;
+    this.composer = { file, ...anchor(row), text: row.text, ref: ref ?? null }; this.thread = null; this.cursor = null;
     this.commentInput.set_value(""); this.commentInput.focus(); cx.notify();
   }
   addComment(cx) {

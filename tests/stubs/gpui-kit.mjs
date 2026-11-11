@@ -5,9 +5,16 @@ export class Node {
   constructor(kind) { this.kind = kind; this.children_ = []; this.id_ = null; this.click = null; this.state = null; }
 }
 
+// Herdr draws a virtual list's rows inside layout, where handlers and ids throw; so does this stand-in.
+export const layout = { inRows: false };
+const noHandlers = (name) => { if (layout.inRows) throw new Error(`${name}() inside a virtual list's row renderer: use on_item_click on the list`); };
+
 const KEPT = {
-  id(node, value) { node.id_ = value; },
-  on_click(node, handler) { node.click = handler; },
+  id(node, value) { noHandlers("id"); node.id_ = value; },
+  on_click(node, handler) { noHandlers("on_click"); node.click = handler; },
+  on_item_click(node, handler) { node.itemClick = handler; },
+  hover(_node) { noHandlers("hover"); },
+  on_mouse_down(_node) { noHandlers("on_mouse_down"); },
   on_size_change(node, handler) { node.resize = handler; },
   child(node, child) { node.children_.push(child); },
   children(node, list) { node.children_.push(...list); },

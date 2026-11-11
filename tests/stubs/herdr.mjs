@@ -18,7 +18,12 @@ export const panes = () => [];
 export const focused = () => ({ space: "s1", tab: "t1", pane: "p1", terminal: "t1", cwd: world.cwd });
 export const agents = () => world.running;
 export const knownAgents = async () => world.known;
-export const nextCommand = () => new Promise(() => {});
+// As the app's: each shown copy waits for the next command, and a command reaches every copy waiting.
+const waiting = [];
+export const nextCommand = () => new Promise((resolve) => waiting.push(resolve));
+export function sendCommand(command) { for (const resolve of waiting.splice(0)) resolve(command); }
+// Copies from an earlier test are no longer shown.
+export function forgetCopies() { waiting.length = 0; }
 export const watchFolder = () => new Promise(() => {});
 export const hc = async (args) => { world.sent.push(args); return { code: 0, stdout: "", stderr: "" }; };
 

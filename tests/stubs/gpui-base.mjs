@@ -1,9 +1,16 @@
-import { element } from "./gpui-kit.mjs";
+import { element, layout } from "./gpui-kit.mjs";
 
 export const v_flex = () => element("v_flex");
 export const h_flex = () => element("h_flex");
 // Draws every row, so a test can find any of them.
-export const v_virtual_list = (id, count, _height, _key, rows) => element("list").id(id).children(rows({ start: 0, end: count }));
+export const v_virtual_list = (id, count, _height, key, rows) => {
+  layout.inRows = true;
+  let drawn;
+  try { drawn = rows({ start: 0, end: count }); } finally { layout.inRows = false; }
+  const list = element("list").id(id).children(drawn);
+  list.keys = Array.from({ length: count }, (_, i) => key(i));
+  return list;
+};
 export const Scrollbar = { vertical: () => element("scrollbar") };
 
 class TextState {
